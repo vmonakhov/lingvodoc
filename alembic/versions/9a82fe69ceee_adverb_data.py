@@ -20,8 +20,6 @@ def upgrade():
 
     op.execute('''
 
-        ALTER TABLE parserresult ADD PRIMARY KEY (client_id, object_id);
-
         CREATE TABLE adverb_instance_data (
 
           id BIGSERIAL PRIMARY KEY,
@@ -64,7 +62,5 @@ def downgrade():
 
         DROP TABLE adverb_instance_data CASCADE;
         DROP TABLE adverb_annotation_data CASCADE;
-
-        ALTER TABLE parserresult DROP CONSTRAINT parserresult_pkey;
 
         ''')
