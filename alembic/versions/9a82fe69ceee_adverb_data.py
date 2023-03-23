@@ -25,7 +25,7 @@ def upgrade():
           id BIGSERIAL PRIMARY KEY,
           sentence_id BIGINT NOT NULL REFERENCES valency_sentence_data(id),
           index INT NOT NULL,
-          verb_lex TEXT NOT NULL,
+          adverb_lex TEXT NOT NULL,
           case_str TEXT NOT NULL
 
         );
@@ -43,8 +43,8 @@ def upgrade():
         CREATE INDEX adverb_instance_data_sentence_id_index
           ON adverb_instance_data (sentence_id);
 
-        CREATE INDEX adverb_instance_data_verb_lex_index
-          ON adverb_instance_data (verb_lex);
+        CREATE INDEX adverb_instance_data_adverb_lex_index
+          ON adverb_instance_data (adverb_lex);
 
         CREATE INDEX adverb_instance_data_case_str_index
           ON adverb_instance_data (case_str);
@@ -57,7 +57,7 @@ def downgrade():
     op.execute('''
 
         DROP INDEX adverb_instance_data_sentence_id_index CASCADE;
-        DROP INDEX adverb_instance_data_verb_lex_index CASCADE;
+        DROP INDEX adverb_instance_data_adverb_lex_index CASCADE;
         DROP INDEX adverb_instance_data_case_str_index CASCADE;
 
         DROP TABLE adverb_instance_data CASCADE;

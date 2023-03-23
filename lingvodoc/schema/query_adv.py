@@ -10,10 +10,10 @@ import lingvodoc.utils as utils
 from lingvodoc.schema.gql_holders import LingvodocID
 from lingvodoc.models import (
     DBSession,
-    ValencyInstanceData as dbValencyInstanceData,
+    ValencySourceData as dbValencySourceData,
     ValencyParserData as dbValencyParserData,
     ValencySentenceData as dbValencySentenceData,
-    ValencySourceData as dbValencySourceData,
+    AdverbInstanceData as dbAdverbInstanceData,
     Entity as dbEntity,
     LexicalEntry as dbLexicalEntry,
     ParserResult as dbParserResult,
@@ -195,7 +195,7 @@ class CreateAdverbData(graphene.Mutation):
                     instance_insert_list.append({
                         'sentence_id': sentence_data_id[instance['ps_index']],
                         'index': instance['index'],
-                        'verb_lex': lex,  # adverb_lex
+                        'adverb_lex': lex,
                         'case_str': instance['cases']})
 
     @staticmethod
@@ -215,7 +215,7 @@ class CreateAdverbData(graphene.Mutation):
 
         if instance_insert_list:
             DBSession.execute(
-                dbValencyInstanceData.__table__
+                dbAdverbInstanceData.__table__
                     .insert()
                     .values(instance_insert_list))
 
