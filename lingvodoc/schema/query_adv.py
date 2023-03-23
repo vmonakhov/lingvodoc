@@ -21,7 +21,7 @@ from lingvodoc.models import (
     PublishingEntity as dbPublishingEntity,
 )
 
-from query.Valency import get_parser_result_data
+from query import Valency  #get_parser_result_data
 from valency import corpus_to_sentences
 
 # Setting up logging.
@@ -58,7 +58,7 @@ class CreateAdverbData(graphene.Mutation):
 
         # Getting parser result data.
         parser_result_list = (
-            get_parser_result_data(
+            Valency.get_parser_result_data(
                 perspective_id, debug_flag))
 
         sentence_data_list = (
@@ -140,7 +140,7 @@ class CreateAdverbData(graphene.Mutation):
                     ps_index = f'{p_num}:{s_num}'
                     sentence_data = {
                         'tokens': s,
-                        'instances': []}
+                        'instances_adv': []}
 
                     # iterate over instances
                     for index, (lex, cs, indent, ind, r) in (
@@ -148,7 +148,7 @@ class CreateAdverbData(graphene.Mutation):
 
                         if lex not in adverb_list:
                             adverb_list[lex] = {case: 0 for case in adverb.cases}
-                            adverb_list[lex]['instances'] = []
+                            adverb_list[lex]['instances_adv'] = []
 
                         # increase cases counters
                         for case in cs:
@@ -161,15 +161,15 @@ class CreateAdverbData(graphene.Mutation):
                             'location': (ind, r),
                             'cases': cs})
 
-                        sentence_data['instances'].append(instance)
-                        adverb_list[lex]['instances'].append(instance)
+                        sentence_data['instances_adv'].append(instance)
+                        adverb_list[lex]['instances_adv'].append(instance)
 
                     # commit sentence_data to db
                     adverb_sentence_data = (
                         dbValencySentenceData(
                             source_id=adverb_source_data.id,
                             data=sentence_data,
-                            instance_count=len(sentence_data['instances'])))
+                            instance_count=len(sentence_data['instances_adv'])))
                     DBSession.add(adverb_sentence_data)
                     DBSession.flush()
 
@@ -179,7 +179,7 @@ class CreateAdverbData(graphene.Mutation):
                     log.debug(
                         '\n' +
                         pprint.pformat(
-                            (adverb_source_data.id, len(sentence_data['instances']), sentence_data),
+                            (adverb_source_data.id, len(sentence_data['instances_adv']), sentence_data),
                             width=192))
 
             for lex, report in adverb_list.items():
@@ -191,7 +191,7 @@ class CreateAdverbData(graphene.Mutation):
                 dict(sorted(adverb_list.items(), key=lambda item: (-item[1]['nulls'], item[1]['entropy'])))
 
             for lex, report in adverb_list_sorted.items():
-                for instance in report['instances']:
+                for instance in report['instances_adv']:
                     instance_insert_list.append({
                         'sentence_id': sentence_data_id[instance['ps_index']],
                         'index': instance['index'],
