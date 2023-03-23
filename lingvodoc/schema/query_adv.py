@@ -23,6 +23,7 @@ from lingvodoc.models import (
 
 from query import Valency  #get_parser_result_data
 from valency import corpus_to_sentences
+from adverb import sentence_instance_gen
 
 # Setting up logging.
 log = logging.getLogger(__name__)
@@ -114,89 +115,95 @@ class CreateAdverbData(graphene.Mutation):
                 continue
             '''
 
-            adverb_source_data = (
+            valency_source_data = (
                 dbValencySourceData(
                     perspective_client_id=perspective_id[0],
                     perspective_object_id=perspective_id[1]))
-            DBSession.add(adverb_source_data)
+            DBSession.add(valency_source_data)
             DBSession.flush()
 
-            adverb_parser_data = (
+            valency_parser_data = (
                 dbValencyParserData(
-                    id=adverb_source_data.id,
+                    id=valency_source_data.id,
                     parser_result_client_id=parser_result_id[0],
                     parser_result_object_id=parser_result_id[1],
                     hash=i['hash']))
-            DBSession.add(adverb_parser_data)
+            DBSession.add(valency_parser_data)
             DBSession.flush()
 
-            # gather adverbs and sort them
-            # a) for verb-cases absence (descending)
-            # b) for cases counters entropy (ascending)
-            adverb_list = {}
-            sentence_data_id = {}
-            for p_num, p in enumerate(i['paragraphs']):
-                for s_num, s in enumerate(p['sentences']):
-                    ps_index = f'{p_num}:{s_num}'
-                    sentence_data = {
-                        'tokens': s,
-                        'instances_adv': []}
+            # get stored sentences for valency_source_data.id
+            valency_sentence_data = (
+                DBSession
+                    .query(
+                    dbValencySentenceData)
+
+                    .filter(
+                    dbValencySentenceData.source_id == valency_source_data.id))
+
+            # get canonical form of valency_sentence_data for matching
+            valency_sentence_dict = {}
+            for entry in valency_sentence_data:
+                key = tuple(tuple(sorted(t.items())) for t in entry.data['tokens'])
+                valency_sentence_dict[key] = entry
+
+            # gather adverbs
+            for p in i['paragraphs']:
+                for s in p['sentences']:
+                    tuple_s = tuple(tuple(sorted(t.items())) for t in s)
+                    # check if the same tokens already exist in db
+                    if tuple_s in valency_sentence_dict:
+                        sentence_data = valency_sentence_dict['tuple_s'].data
+                        sentence_data['instances_adv'] = []
+                    else:
+                        sentence_data = {
+                            'tokens': s,
+                            'instances': [],
+                            'instances_adv': []}
 
                     # iterate over instances
                     for index, (lex, cs, indent, ind, r) in (
-                        enumerate(adverb.sentence_instance_gen(s))):
+                        enumerate(sentence_instance_gen(s))):
 
-                        if lex not in adverb_list:
-                            adverb_list[lex] = {case: 0 for case in adverb.cases}
-                            adverb_list[lex]['instances_adv'] = []
-
-                        # increase cases counters
-                        for case in cs:
-                            adverb_list[lex][case] += 1
-                            data_case_set.add(case)
-
-                        instance = ({
-                            'ps_index': ps_index,
+                        sentence_data['instances_adv'].append({
                             'index': index,
                             'location': (ind, r),
-                            'cases': cs})
+                            'case': ','.join(sorted(cs))})
 
-                        sentence_data['instances_adv'].append(instance)
-                        adverb_list[lex]['instances_adv'].append(instance)
+                        data_case_set |= set(cs)
 
                     # commit sentence_data to db
-                    adverb_sentence_data = (
+                    valency_sentence_data = (
                         dbValencySentenceData(
-                            source_id=adverb_source_data.id,
+                            source_id=valency_source_data.id,
                             data=sentence_data,
-                            instance_count=len(sentence_data['instances_adv'])))
-                    DBSession.add(adverb_sentence_data)
+                            instance_count=len(sentence_data['instances'])))
+                    DBSession.add(valency_sentence_data)
                     DBSession.flush()
 
-                    # store sentence data id
-                    sentence_data_id[ps_index] = adverb_sentence_data.id
+                    for instance in sentence_data['instances_adv']:
+                        instance_insert_list.append({
+                            'sentence_id': valency_sentence_data.id,
+                            'index': instance['index'],
+                            'adverb_lex': s[instance['location'][0]]['lex'].lower(),
+                            'case_str': instance['cases'],
+                        })
 
                     log.debug(
                         '\n' +
                         pprint.pformat(
-                            (adverb_source_data.id, len(sentence_data['instances_adv']), sentence_data),
+                            (adverb_source_data.id, len(sentence_data['instances']), sentence_data),
                             width=192))
 
-            for lex, report in adverb_list.items():
-                adverb_list[lex]['nulls'] = sum((report[case] == 0) for case in adverb.cases)
-                adverb_list[lex]['entropy'] = entropy([report[case] for case in adverb.cases])
+        '''
+        #sorting
+        for lex, report in adverb_list.items():
+            adverb_list[lex]['nulls'] = sum((report[case] == 0) for case in adverb.cases)
+            adverb_list[lex]['entropy'] = entropy([report[case] for case in adverb.cases])
 
-            # used nulls amount with 'minus'
-            adverb_list_sorted = \
-                dict(sorted(adverb_list.items(), key=lambda item: (-item[1]['nulls'], item[1]['entropy'])))
-
-            for lex, report in adverb_list_sorted.items():
-                for instance in report['instances_adv']:
-                    instance_insert_list.append({
-                        'sentence_id': sentence_data_id[instance['ps_index']],
-                        'index': instance['index'],
-                        'adverb_lex': lex,
-                        'case_str': instance['cases']})
+        # used nulls amount with 'minus'
+        adverb_list_sorted = \
+            dict(sorted(adverb_list.items(), key=lambda item: (-item[1]['nulls'], item[1]['entropy'])))
+        '''
 
     @staticmethod
     def process(
