@@ -33,9 +33,9 @@ celery_log = get_task_logger(__name__)
 celery_log.setLevel(logging.DEBUG)
 
 
-# calculate empirical entropy
+# sort instances for viewing
 def sort_instances(instance_list):
-
+    # calculate empirical entropy
     def entropy(cases):
         total = sum(cases)
         return (math.log2(total) -
@@ -215,7 +215,7 @@ class CreateAdverbData(graphene.Mutation):
                     log.debug(
                         '\n' +
                         pprint.pformat(
-                            (adverb_source_data.id, len(sentence_data['instances']), sentence_data),
+                            (valency_source_data.id, len(sentence_data['instances']), sentence_data),
                             width=192))
 
     @staticmethod
