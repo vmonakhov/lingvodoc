@@ -34,12 +34,36 @@ celery_log.setLevel(logging.DEBUG)
 
 
 # calculate empirical entropy
-def entropy(cases):
-    total = sum(cases)
-    return (math.log2(total) -
-            sum(count * math.log2(count)
-                for count in cases if count > 0)
-            / total)
+def sort_instances(instance_list):
+
+    def entropy(cases):
+        total = sum(cases)
+        return (math.log2(total) -
+                sum(count * math.log2(count)
+                    for count in cases if count > 0)
+                / total)
+
+    adverb_list = {}
+    for instance in instance_list:
+        lex = instance['adverb_lex']
+        if lex not in adverb_list:
+            adverb_list[lex] = {case: 0 for case in adverb.cases}
+        cs = instance['case_str'].split(',')
+        for case in cs:
+            adverb_list[lex][case] += 1
+
+    for lex, report in adverb_list.items():
+        adverb_list[lex]['nulls'] = sum((report[case] == 0) for case in adverb.cases)
+        adverb_list[lex]['entropy'] = entropy([report[case] for case in adverb.cases])
+
+    for index, instance in enumerate(instance_list):
+        lex = instance['adverb_lex']
+        instance_list[index]['nulls'] = adverb_list[lex]['nulls']
+        instance_list[index]['entropy'] = adverb_list[lex]['entropy']
+
+    # sort by cases absence (nulls) and entropy value
+    # used 'nulls' counter with 'minus' (descending order)
+    instance_list.sort(key=lambda inst: (-inst['nulls'], inst['entropy']))
 
 
 class CreateAdverbData(graphene.Mutation):
@@ -193,17 +217,6 @@ class CreateAdverbData(graphene.Mutation):
                         pprint.pformat(
                             (adverb_source_data.id, len(sentence_data['instances']), sentence_data),
                             width=192))
-
-        '''
-        #sorting
-        for lex, report in adverb_list.items():
-            adverb_list[lex]['nulls'] = sum((report[case] == 0) for case in adverb.cases)
-            adverb_list[lex]['entropy'] = entropy([report[case] for case in adverb.cases])
-
-        # used nulls amount with 'minus'
-        adverb_list_sorted = \
-            dict(sorted(adverb_list.items(), key=lambda item: (-item[1]['nulls'], item[1]['entropy'])))
-        '''
 
     @staticmethod
     def process(
