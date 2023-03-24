@@ -1,14 +1,13 @@
 import json
 import math
-import random
 import logging
-import graphene
 import graphene.types
 from celery.utils.log import get_task_logger
 
 import lingvodoc.utils as utils
 from lingvodoc.schema.gql_holders import LingvodocID
 from lingvodoc.models import (
+    Client,
     DBSession,
     ValencySourceData as dbValencySourceData,
     ValencyParserData as dbValencyParserData,
@@ -61,7 +60,7 @@ def sort_instances(instance_list):
         instance_list[index]['nulls'] = adverb_list[lex]['nulls']
         instance_list[index]['entropy'] = adverb_list[lex]['entropy']
 
-    # sort by cases absence (nulls) and entropy value
+    # sort by cases absence (nulls) and entropy values
     # used 'nulls' counter with 'minus' (descending order)
     instance_list.sort(key=lambda inst: (-inst['nulls'], inst['entropy']))
 
@@ -162,7 +161,9 @@ class CreateAdverbData(graphene.Mutation):
                     dbValencySentenceData)
 
                     .filter(
-                    dbValencySentenceData.source_id == valency_source_data.id))
+                    dbValencySentenceData.source_id == valency_source_data.id)
+
+                    .all())
 
             # get canonical form of valency_sentence_data for matching
             valency_sentence_dict = {}
@@ -209,7 +210,7 @@ class CreateAdverbData(graphene.Mutation):
                             'sentence_id': valency_sentence_data.id,
                             'index': instance['index'],
                             'adverb_lex': s[instance['location'][0]]['lex'].lower(),
-                            'case_str': instance['cases'],
+                            'case_str': instance['case'],
                         })
 
                     log.debug(
