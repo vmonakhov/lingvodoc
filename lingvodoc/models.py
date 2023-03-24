@@ -1961,34 +1961,12 @@ class ValencyInstanceData(
     case_str = Column(UnicodeText, nullable = False)
 
 
-class AdverbInstanceData(
-    Base,
-    IdMixin):
-
-    __tablename__ = 'adverb_instance_data'
-
-    sentence_id = Column(SLBigInteger(), ForeignKey('valency_sentence_data.id'), nullable = False)
-    index = Column(Integer(), nullable = False)
-    adverb_lex = Column(UnicodeText, nullable = False)
-    case_str = Column(UnicodeText, nullable = False)
-
-
 class ValencyAnnotationData(
     Base):
 
     __tablename__ = 'valency_annotation_data'
 
     instance_id = Column(SLBigInteger(), ForeignKey('valency_instance_data.id'), primary_key = True)
-    user_id = Column(SLBigInteger(), ForeignKey('user.id'), primary_key = True)
-    accepted = Column(Boolean, default = None)
-
-
-class AdverbAnnotationData(
-    Base):
-
-    __tablename__ = 'adverb_annotation_data'
-
-    instance_id = Column(SLBigInteger(), ForeignKey('adverb_instance_data.id'), primary_key = True)
     user_id = Column(SLBigInteger(), ForeignKey('user.id'), primary_key = True)
     accepted = Column(Boolean, default = None)
 
@@ -2007,3 +1985,24 @@ class ValencyMergeData(
     verb_lex = Column(UnicodeText, nullable = False, primary_key = True)
     merge_id = Column(SLBigInteger(), nullable = False)
 
+
+class AdverbInstanceData(
+    Base,
+    IdMixin):
+
+    __tablename__ = 'adverb_instance_data'
+
+    sentence_id = Column(SLBigInteger(), ForeignKey('valency_sentence_data.id'), nullable = False)
+    index = Column(Integer(), nullable = False)
+    adverb_lex = Column(UnicodeText, nullable = False)
+    case_str = Column(UnicodeText, nullable = False)
+
+
+class AdverbAnnotationData(
+    Base):
+
+    __tablename__ = 'adverb_annotation_data'
+
+    instance_id = Column(SLBigInteger(), ForeignKey('adverb_instance_data.id'), primary_key = True)
+    user_id = Column(SLBigInteger(), ForeignKey('user.id'), primary_key = True)
+    accepted = Column(Boolean, default = None)
