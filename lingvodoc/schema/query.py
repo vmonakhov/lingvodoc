@@ -18095,6 +18095,108 @@ class CreateAdverbData(graphene.Mutation):
             return ResponseError('Exception:\n' + traceback_string)
 
 
+class SetAdverbAnnotation(graphene.Mutation):
+
+    class AdverbInstanceAnnotation(graphene.types.Scalar):
+
+        @staticmethod
+        def identity(value):
+            return value
+
+        serialize = identity
+        parse_value = identity
+
+        @staticmethod
+        def parse_literal(ast):
+
+            if not isinstance(ast, ListValue) or len(ast.values) != 2:
+                return None
+
+            a_value, b_value = ast.values
+
+            if (not isinstance(a_value, IntValue) or
+                not isinstance(b_value, BooleanValue)):
+                return None
+
+            return [int(a_value.value), bool(b_value.value)]
+
+    class Arguments:
+        pass
+
+    Arguments.annotation_list = (
+        graphene.List(AdverbInstanceAnnotation, required = True))
+
+    triumph = graphene.Boolean()
+
+    @staticmethod
+    def mutate(root, info, **args):
+
+        try:
+
+            client_id = info.context.get('client_id')
+            client = DBSession.query(Client).filter_by(id = client_id).first()
+
+            if not client:
+
+                return (
+
+                    ResponseError(
+                        message = 'Only registered users can set adverb annotations.'))
+
+            annotation_list = args['annotation_list']
+
+            log.debug(
+                f'\nuser_id: {client.user_id}'
+                f'\nannotation_list: {annotation_list}')
+
+            # NOTE:
+            #
+            # Directly formatting arguments in in general can be unsafe, but here it's ok because we are
+            # relying on GraphQL's argument validation.
+
+            value_list_str = (
+
+                ', '.join(
+                    '({}, {}, {})'.format(
+                        instance_id, client.user_id, 'true' if accepted else 'false')
+                    for instance_id, accepted in annotation_list))
+
+            sql_str = (
+
+                f'''
+                insert into
+                adverb_annotation_data
+                values {value_list_str}
+                on conflict on constraint adverb_annotation_data_pkey
+                do update set accepted = excluded.accepted;
+                ''')
+
+            DBSession.execute(sql_str)
+
+            mark_changed(DBSession())
+
+            return (
+
+                SetAdverbAnnotation(
+                    triumph = True))
+
+        except Exception as exception:
+
+            traceback_string = (
+
+                ''.join(
+                    traceback.format_exception(
+                        exception, exception, exception.__traceback__))[:-1])
+
+            log.warning('set_adverb_annotation: exception')
+            log.warning(traceback_string)
+
+            return (
+
+                ResponseError(
+                    'Exception:\n' + traceback_string))
+
+
 class MyMutations(graphene.ObjectType):
     """
     Mutation classes.
@@ -18199,6 +18301,7 @@ class MyMutations(graphene.ObjectType):
     save_valency_data = SaveValencyData.Field()
     set_valency_annotation = SetValencyAnnotation.Field()
     create_adverb_data = CreateAdverbData.Field()
+    set_adverb_annotation = SetAdverbAnnotation.Field()
 
 schema = graphene.Schema(query=Query, auto_camelcase=False, mutation=MyMutations)
 
