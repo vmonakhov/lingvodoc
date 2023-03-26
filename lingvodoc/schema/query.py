@@ -4121,7 +4121,8 @@ class Query(graphene.ObjectType):
     perspectives = graphene.List(Perspective,
         published=graphene.Boolean(),
         only_with_phonology_data=graphene.Boolean(),
-        only_with_valency_data=graphene.Boolean())
+        only_with_valency_data=graphene.Boolean(),
+        only_with_adverb_data=graphene.Boolean())
     perspective = graphene.Field(Perspective, id=LingvodocID())
     entity = graphene.Field(Entity, id=LingvodocID())
     language = graphene.Field(Language, id=LingvodocID())
@@ -4302,6 +4303,19 @@ class Query(graphene.ObjectType):
             offset = graphene.Int(),
             limit = graphene.Int(),
             verb_prefix = graphene.String(),
+            case_flag = graphene.Boolean(),
+            accept_value = graphene.Boolean(),
+            sort_order_list = graphene.List(graphene.String),
+            debug_flag = graphene.Boolean()))
+
+    adverb_data = (
+
+        graphene.Field(
+            ObjectVal,
+            perspective_id = LingvodocID(required = True),
+            offset = graphene.Int(),
+            limit = graphene.Int(),
+            adverb_prefix = graphene.String(),
             case_flag = graphene.Boolean(),
             accept_value = graphene.Boolean(),
             sort_order_list = graphene.List(graphene.String),
@@ -5746,7 +5760,8 @@ class Query(graphene.ObjectType):
         info,
         published = None,
         only_with_phonology_data = None,
-        only_with_valency_data = None):
+        only_with_valency_data = None,
+        only_with_adverb_data = None):
         """
         example:
 
