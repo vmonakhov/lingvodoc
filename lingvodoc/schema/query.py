@@ -8483,6 +8483,502 @@ class Query(graphene.ObjectType):
             return_list.append(element)
         return return_list
 
+    def resolve_adverb_data(
+        self,
+        info,
+        perspective_id,
+        offset = 0,
+        limit = 25,
+        adverb_prefix = None,
+        case_flag = False,
+        accept_value = None,
+        sort_order_list = None,
+        debug_flag = False,
+        **args):
+
+        log.debug(
+            f'\nperspective_id: {perspective_id}'
+            f'\noffset: {offset}'
+            f'\nlimit: {limit}'
+            f'\nadverb_prefix: {repr(adverb_prefix)}'
+            f'\ncase_flag: {case_flag}'
+            f'\naccept_value: {accept_value}'
+            f'\nsort_order_list: {sort_order_list}'
+            f'\ndebug_flag: {debug_flag}')
+
+        if sort_order_list is None:
+            sort_order_list = ['adverb', 'case', 'accept']
+
+        adverb_flag = adverb_prefix is not None
+        accept_flag = accept_value is not None
+
+        instance_query = (
+
+            DBSession
+
+                .query(
+                    dbValencyInstanceData)
+
+                .filter(
+                    dbValencySourceData.perspective_client_id == perspective_id[0],
+                    dbValencySourceData.perspective_object_id == perspective_id[1],
+                    dbValencySentenceData.source_id == dbValencySourceData.id,
+                    dbValencyInstanceData.sentence_id == dbValencySentenceData.id))
+
+        # We'll need that for getting adverb merge groupings.
+
+        merge_filter_list = [
+            dbValencyMergeData.perspective_client_id == perspective_id[0],
+            dbValencyMergeData.perspective_object_id == perspective_id[1]]
+
+        if adverb_prefix:
+
+            adverb_prefix_filter_str = (
+                adverb_prefix.replace('%', '\\%') + '%')
+
+            merge_filter_list.append(
+
+                dbValencyMergeData.adverb_lex.ilike(
+                    adverb_prefix_filter_str))
+
+        lex_id_cte = (
+
+            DBSession
+
+                .query(
+                    dbValencyMergeData.adverb_lex,
+                    dbValencyMergeData.merge_id)
+
+                .filter(
+                    *merge_filter_list)
+
+                .cte())
+
+        id_lex_list_cte = (
+
+            DBSession
+
+                .query(
+                    dbValencyMergeData.merge_id,
+
+                    func.array_agg(
+                        postgresql.aggregate_order_by(
+                            dbValencyMergeData.adverb_lex,
+                            dbValencyMergeData.adverb_lex))
+
+                        .label('adverb_lex_list'))
+
+                .filter(
+                    dbValencyMergeData.perspective_client_id == perspective_id[0],
+                    dbValencyMergeData.perspective_object_id == perspective_id[1],
+
+                    dbValencyMergeData.merge_id.in_(
+                        DBSession.query(lex_id_cte.c.merge_id)))
+
+                .group_by(
+                    dbValencyMergeData.merge_id)
+
+                .cte())
+
+        # Filtering by adverb prefix, if required.
+
+        if adverb_prefix:
+
+            adverb_lex_subquery = (
+
+                DBSession
+
+                    .query(
+                        dbValencyMergeData.adverb_lex)
+
+                    .filter(
+                        dbValencyMergeData.perspective_client_id == perspective_id[0],
+                        dbValencyMergeData.perspective_object_id == perspective_id[1],
+
+                        dbValencyMergeData.merge_id.in_(
+                            DBSession.query(lex_id_cte.c.merge_id)))
+
+                    .subquery())
+
+            instance_query = (
+
+                instance_query.filter(
+
+                    or_(
+                        dbValencyInstanceData.adverb_lex.ilike(
+                            adverb_prefix_filter_str),
+
+                        dbValencyInstanceData.adverb_lex.in_(
+                            adverb_lex_subquery))))
+
+        instance_count = (
+            instance_query.count())
+
+        if debug_flag:
+
+            log.debug(
+                '\ninstance_query:\n' +
+                str(instance_query.statement.compile(compile_kwargs = {'literal_binds': True})))
+
+            log.debug(
+                f'\ninstance_count: {instance_count}')
+
+        # Getting ready to sort, if required.
+
+        order_by_list = []
+
+        for sort_type in sort_order_list:
+
+            if sort_type == 'adverb':
+
+                if adverb_flag:
+
+                    lex_list_subquery = (
+
+                        DBSession
+
+                            .query(
+                                dbValencyMergeData.adverb_lex,
+                                id_lex_list_cte.c.adverb_lex_list)
+
+                            .filter(
+                                dbValencyMergeData.perspective_client_id == perspective_id[0],
+                                dbValencyMergeData.perspective_object_id == perspective_id[1],
+                                dbValencyMergeData.merge_id == id_lex_list_cte.c.merge_id)
+
+                            .subquery())
+
+                    instance_query = (
+
+                        instance_query
+
+                            .outerjoin(
+                                lex_list_subquery,
+                                dbValencyInstanceData.adverb_lex == lex_list_subquery.c.adverb_lex))
+
+                    order_by_list.extend((
+
+                        func.coalesce(
+                            lex_list_subquery.c.adverb_lex_list,
+                            postgresql.array(
+                                [dbValencyInstanceData.adverb_lex])),
+
+                        dbValencyInstanceData.adverb_lex))
+
+            elif sort_type == 'case':
+
+                if case_flag:
+
+                    # Getting case ordering mapping as a temporary table.
+
+                    case_table_name = (
+
+                        'case_table_' +
+                        str(uuid.uuid4()).replace('-', '_'))
+
+                    case_value_str = (
+
+                        ', '.join(
+                            f'(\'{case_str}\', {index})'
+                            for index, case_str in (
+                                enumerate(CreateValencyData.case_list))))
+
+                    DBSession.execute(f'''
+
+                        create temporary table
+
+                        {case_table_name} (
+                          case_str TEXT PRIMARY KEY,
+                          order_value INT NOT NULL)
+
+                        on commit drop;
+
+                        insert into {case_table_name}
+                        values {case_value_str};
+
+                        ''')
+
+                    class tmpCaseOrder(models.Base):
+
+                        __tablename__ = case_table_name
+
+                        case_str = (
+                            sqlalchemy.Column(sqlalchemy.types.UnicodeText, primary_key = True))
+
+                        order_value = (
+                            sqlalchemy.Column(sqlalchemy.types.Integer, nullable = False))
+
+                    # Ordering by cases.
+
+                    instance_query = (
+
+                        instance_query.outerjoin(
+                            tmpCaseOrder,
+                            dbValencyInstanceData.case_str == tmpCaseOrder.case_str))
+
+                    order_by_list.append(
+                        tmpCaseOrder.order_value)
+
+            elif sort_type == 'accept':
+
+                if accept_flag:
+
+                    accept_subquery = (
+
+                        DBSession
+
+                            .query(
+                                dbValencyAnnotationData.instance_id,
+
+                                func.bool_or(dbValencyAnnotationData.accepted)
+                                    .label('accept_value'))
+
+                            .group_by(
+                                dbValencyAnnotationData.instance_id)
+
+                            .subquery())
+
+                    instance_query = (
+
+                        instance_query.outerjoin(
+                            accept_subquery,
+                            dbValencyInstanceData.id == accept_subquery.c.instance_id))
+
+                    order_by_list.append(
+                        func.coalesce(accept_subquery.c.accept_value, False) != accept_value)
+
+        order_by_list.append(
+            dbValencyInstanceData.id)
+
+        # Getting annotation instances and related info.
+
+        instance_query = (
+
+            instance_query
+                .order_by(*order_by_list)
+                .offset(offset)
+                .limit(limit))
+
+        instance_list = instance_query.all()
+
+        if debug_flag:
+
+            log.debug(
+                f'\ninstance_query ({len(instance_list)}):\n' +
+                str(instance_query.statement.compile(compile_kwargs = {'literal_binds': True})))
+
+        instance_id_set = (
+            set(instance.id for instance in instance_list))
+
+        instance_adverb_lex_set = (
+            set(instance.adverb_lex for instance in instance_list))
+
+        sentence_id_set = (
+            set(instance.sentence_id for instance in instance_list))
+
+        log.debug(
+            '\ninstance_id_set: {}'
+            '\nsentence_id_set: {}'.format(
+                instance_id_set,
+                sentence_id_set))
+
+        sentence_list = []
+
+        if sentence_id_set:
+
+            sentence_list = (
+
+                DBSession
+
+                    .query(
+                        dbValencySentenceData)
+
+                    .filter(
+                        dbValencySentenceData.id.in_(
+
+                            utils.values_query(
+                                sentence_id_set, models.SLBigInteger)))
+
+                    .all())
+
+        annotation_list = []
+
+        if instance_id_set:
+
+            annotation_list = (
+
+                DBSession
+
+                    .query(
+                        dbValencyAnnotationData.instance_id,
+
+                        func.jsonb_agg(
+                            func.jsonb_build_array(
+                                dbValencyAnnotationData.user_id,
+                                dbValencyAnnotationData.accepted)))
+
+                    .filter(
+                        dbValencyAnnotationData.instance_id.in_(
+
+                            utils.values_query(
+                                instance_id_set, models.SLBigInteger)))
+
+                    .group_by(
+                        dbValencyAnnotationData.instance_id)
+
+                    .all())
+
+        user_id_set = (
+
+            set(user_id
+                for _, user_annotation_list in annotation_list
+                for user_id, _ in user_annotation_list))
+
+        user_list = []
+
+        if user_id_set:
+
+            user_list = (
+
+                DBSession
+
+                    .query(
+                        dbUser.id, dbUser.name)
+
+                    .filter(
+                        dbUser.id.in_(
+
+                            utils.values_query(
+                                user_id_set, models.SLBigInteger)))
+
+                    .all())
+
+        instance_list = [
+
+            {'id': instance.id,
+                'sentence_id': instance.sentence_id,
+                'index': instance.index,
+                'adverb_lex': instance.adverb_lex,
+                'case_str': instance.case_str}
+
+            for instance in instance_list]
+
+        sentence_list = [
+            dict(sentence.data, id = sentence.id)
+            for sentence in sentence_list]
+
+        merge_list = []
+
+        if instance_adverb_lex_set:
+
+            merge_id_subquery = (
+
+                DBSession
+
+                    .query(
+                        lex_id_cte.c.merge_id)
+
+                    .filter(
+                        lex_id_cte.c.adverb_lex.in_(
+
+                            utils.values_query(
+                                instance_adverb_lex_set, models.String)))
+
+                    .subquery())
+
+            merge_list = (
+
+                DBSession
+
+                    .query(
+                        id_lex_list_cte.c.adverb_lex_list)
+
+                    .filter(
+                        id_lex_list_cte.c.merge_id.in_(
+                            merge_id_subquery))
+
+                    .all())
+
+            merge_list = [
+                item[0] for item in merge_list]
+
+        log.debug(
+
+            '\ninstance_list ({}):\n{}'
+            '\nmerge_list ({}):\n{}'
+            '\nsentence_list ({}):\n{}'
+            '\nannotation_list ({}):\n{}'
+            '\nuser_list ({}):\n{}'.format(
+
+                len(instance_list),
+                pprint.pformat(instance_list, width = 192),
+                len(merge_list),
+                pprint.pformat(merge_list, width = 192),
+                len(sentence_list),
+                pprint.pformat(sentence_list, width = 192),
+                len(annotation_list),
+                pprint.pformat(annotation_list, width = 192),
+                len(user_list),
+                pprint.pformat(user_list, width = 192)))
+
+        result_dict = {
+            'instance_count': instance_count,
+            'instance_list': instance_list,
+            'merge_list': merge_list,
+            'sentence_list': sentence_list,
+            'annotation_list': annotation_list,
+            'user_list': user_list}
+
+        # Getting all adverbs, without filtering, if required.
+
+        if adverb_flag:
+
+            if adverb_prefix:
+
+                adverb_query = (
+
+                    DBSession
+
+                        .query(
+                            dbValencyInstanceData.adverb_lex,
+                            dbValencyInstanceData.adverb_lex.ilike(adverb_prefix_filter_str)))
+
+            else:
+
+                adverb_query = (
+
+                    DBSession
+
+                        .query(
+                            dbValencyInstanceData.adverb_lex))
+
+            adverb_list = (
+
+                adverb_query
+
+                    .filter(
+                        dbValencySourceData.perspective_client_id == perspective_id[0],
+                        dbValencySourceData.perspective_object_id == perspective_id[1],
+                        dbValencySentenceData.source_id == dbValencySourceData.id,
+                        dbValencyInstanceData.sentence_id == dbValencySentenceData.id)
+
+                    .distinct()
+
+                    .order_by(dbValencyInstanceData.adverb_lex)
+
+                    .all())
+
+            if adverb_prefix:
+
+                result_dict['adverb_list'] = (
+                    [list(row) for row in adverb_list])
+
+            else:
+
+                result_dict['adverb_list'] = (
+                    [[row[0], True] for row in adverb_list])
+
+        return result_dict
 
 
 class PerspectivesAndFields(graphene.InputObjectType):
