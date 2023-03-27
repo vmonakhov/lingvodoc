@@ -223,8 +223,6 @@ class DictionaryPerspective(LingvodocObjectType):
     is_hidden_for_client = graphene.Boolean()
     has_valency_data = graphene.Boolean()
     new_valency_data_count = graphene.Int()
-    has_adverb_data = graphene.Boolean()
-    new_adverb_data_count = graphene.Int()
 
     dbType = dbPerspective
 
