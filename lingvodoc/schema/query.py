@@ -8514,6 +8514,7 @@ class Query(graphene.ObjectType):
 
         # If required, getting case ordering mapping as a temporary table.
 
+        """
         if case_flag:
 
             case_table_name = (
@@ -8526,7 +8527,7 @@ class Query(graphene.ObjectType):
                 ', '.join(
                     f'(\'{case_str}\', {index})'
                     for index, case_str in (
-                        enumerate(CreateAdverbData.case_list))))
+                        enumerate(adverb.cases))))
 
             DBSession.execute(f'''
                 create temporary table
@@ -8547,6 +8548,7 @@ class Query(graphene.ObjectType):
 
                 order_value = (
                     sqlalchemy.Column(sqlalchemy.types.Integer, nullable = False))
+        """
 
         instance_query = (
 
@@ -8574,7 +8576,7 @@ class Query(graphene.ObjectType):
         # Getting ready to sort, if required.
 
         order_by_list = []
-
+        """
         for sort_type in sort_order_list:
 
             if sort_type == 'adverb':
@@ -8624,7 +8626,7 @@ class Query(graphene.ObjectType):
 
                     order_by_list.append(
                         func.coalesce(accept_subquery.c.accept_value, False) != accept_value)
-
+        """
         order_by_list.append(
             dbAdverbInstanceData.id)
 
