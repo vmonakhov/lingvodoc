@@ -367,7 +367,21 @@ import lingvodoc.scripts.docx_import as docx_import
 
 # Setting up logging.
 log = logging.getLogger(__name__)
-
+log.setLevel(logging.DEBUG)
+# create file handler which logs even debug messages
+fh = logging.handlers.RotatingFileHandler('debug.log', encoding='utf-8',
+                                          maxBytes=2**24, backupCount=3)
+fh.setLevel(logging.DEBUG)
+# create console handler with a higher log level
+ch = logging.StreamHandler()
+ch.setLevel(logging.ERROR)
+# create formatter and add it to the handlers
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+# add the handlers to the logger
+log.addHandler(fh)
+log.addHandler(ch)
 
 # Trying to set up celery logging.
 celery_log = get_task_logger(__name__)
@@ -18097,7 +18111,7 @@ class CreateAdverbData(graphene.Mutation):
 
         # sort by cases absence (nulls) and entropy values
         # used 'nulls' counter with 'minus' (descending order)
-        instance_list.sort(key=lambda inst: (-inst['nulls'], inst['entropy']))
+        instance_list.sort(key=lambda inst: (-inst['nulls'], inst['entropy'], inst['adverb_lex']))
 
     @staticmethod
     def process_parser(
