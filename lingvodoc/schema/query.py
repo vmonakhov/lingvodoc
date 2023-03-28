@@ -8723,6 +8723,9 @@ class Query(graphene.ObjectType):
 
             for instance in instance_list]
 
+        # Sort instance_list by adverbs specificity (nulls and entropy)
+        CreateAdverbData.sort_instances(instance_list)
+
         sentence_list = [
             dict(sentence.data, id = sentence.id)
             for sentence in sentence_list]
@@ -18065,6 +18068,8 @@ class CreateAdverbData(graphene.Mutation):
     def sort_instances(instance_list):
         # calculate empirical entropy
         def entropy(cases):
+            if not cases:
+                return -1
             total = sum(cases)
             return (math.log2(total) -
                     sum(count * math.log2(count)
@@ -18078,7 +18083,8 @@ class CreateAdverbData(graphene.Mutation):
                 adverb_list[lex] = {case: 0 for case in adverb.cases}
             cs = instance['case_str'].split(',')
             for case in cs:
-                adverb_list[lex][case] += 1
+                if case in adverb.cases:
+                    adverb_list[lex][case] += 1
 
         for lex, report in adverb_list.items():
             adverb_list[lex]['nulls'] = sum((report[case] == 0) for case in adverb.cases)
