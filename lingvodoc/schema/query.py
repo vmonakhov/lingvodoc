@@ -8650,8 +8650,9 @@ class Query(graphene.ObjectType):
 
             instance_query
                 .order_by(*order_by_list)
-                .offset(offset)
-                .limit(limit))
+                #.offset(offset)
+                #.limit(limit)
+            )
 
         if debug_flag:
 
@@ -8730,15 +8731,16 @@ class Query(graphene.ObjectType):
         instance_list = [
 
             {'id': instance.id,
-                'sentence_id': instance.sentence_id,
-                'index': instance.index,
-                'adverb_lex': instance.adverb_lex,
-                'case_str': instance.case_str}
+             'sentence_id': instance.sentence_id,
+             'index': instance.index,
+             'adverb_lex': instance.adverb_lex,
+             'case_str': instance.case_str}
 
             for instance in instance_list]
 
         # Sort instance_list by adverbs specificity (nulls and entropy)
         CreateAdverbData.sort_instances(instance_list)
+        instance_list = instance_list[offset: offset + limit]
 
         sentence_list = [
             dict(sentence.data, id = sentence.id)
