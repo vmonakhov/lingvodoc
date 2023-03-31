@@ -4124,6 +4124,8 @@ class Language_Resolver(object):
 
         return gql_language_list
 
+def adv_per_id(perspective_id):
+    return f'adv_per_id_{perspective_id[0]}_{perspective_id[1]}'
 
 class Query(graphene.ObjectType):
     client = graphene.String()
@@ -8660,11 +8662,9 @@ class Query(graphene.ObjectType):
                 '\n' +
                 str(instance_query.statement.compile(compile_kwargs = {'literal_binds': True})))
 
-        per_id = f'adv_per_id_{perspective_id[0]}_{perspective_id[1]}'
-
-        # An item may not exist or may be not json
         try:
-            instance_list = json.loads(CACHE.get(per_id))
+            # Get instances list from CACHE (if is) and convert the string to list of dicts using json.loads
+            instance_list = json.loads(CACHE.get(adv_per_id(perspective_id)))
         except:
             instance_items = instance_query.all()
             instance_list = [
@@ -8677,7 +8677,7 @@ class Query(graphene.ObjectType):
 
             # Sort instance_list by adverbs specificity (nulls and entropy)
             CreateAdverbData.sort_instances(instance_list)
-            CACHE.set(per_id, json.dumps(instance_list))
+            CACHE.set(adv_per_id(perspective_id), instance_list)
 
         instance_list = instance_list[offset: offset + limit]
 
@@ -18161,10 +18161,10 @@ class CreateAdverbData(graphene.Mutation):
             parser_result_id = i['id']
 
             # Checking if we already have such parser result valency data
-            valency_parser_data, valency_source_data = (
+            valency_source_data= (
                 DBSession
                     .query(
-                        dbValencyParserData, dbValencySourceData)
+                        dbValencySourceData)
 
                     .filter(
                         dbValencySourceData.perspective_client_id == perspective_id[0],
@@ -18177,7 +18177,7 @@ class CreateAdverbData(graphene.Mutation):
 
             valency_sentence_dict = {}
 
-            if valency_parser_data:
+            if valency_source_data:
                 # We have parser result source data
                 # So we can get stored sentences for valency_source_data.id
                 valency_sentence_list = (
@@ -18281,8 +18281,7 @@ class CreateAdverbData(graphene.Mutation):
             debug_flag)
 
         if instance_insert_list:
-            per_id = f'adv_per_id_{perspective_id[0]}_{perspective_id[1]}'
-            CACHE.rem(per_id)
+            CACHE.rem(adv_per_id(perspective_id))
 
             DBSession.execute(
                 dbAdverbInstanceData.__table__
