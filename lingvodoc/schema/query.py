@@ -8677,7 +8677,7 @@ class Query(graphene.ObjectType):
 
             # Sort instance_list by adverbs specificity (nulls and entropy)
             CreateAdverbData.sort_instances(instance_list)
-            CACHE.set(adv_per_id(perspective_id), instance_list)
+            CACHE.set(adv_per_id(perspective_id), instance_list, ex = 86400)
 
         instance_list = instance_list[offset: offset + limit]
 

@@ -140,7 +140,7 @@ class ThroughCache(ICache):
 
 
     # TODO: add try/catch handlers.
-    def set(self, key = None, value = None, key_value = None, objects = list(), transaction = False, DBSession=None):
+    def set(self, key = None, value = None, key_value = None, objects = list(), transaction = False, DBSession=None, ex = None):
         """
         Inserts objects to cache and database
 
@@ -154,18 +154,17 @@ class ThroughCache(ICache):
             Returns list of True/False(one value if :transaction:) flags of success
         """
         if key is not None:
-            self.cache.set(key, dill.dumps(value))
+            self.cache.set(key, dill.dumps(value), ex=ex)
             return
         if key_value is not None:
             self.cache.mset(
                 dict(
                     map(lambda key_value_pair: (key_value_pair[0], dill.dumps(key_value_pair[1]) ),
                         key_value.items()
-                    )
+                        ),
+                    ex=ex
                 )
             )
-
-
 
         if DBSession is None:
             log.error("Missing DBSession parameter in CACHE.get()")
@@ -181,7 +180,7 @@ class ThroughCache(ICache):
                 )
                 DBSession.add_all(objects)
                 DBSession.flush()
-                self.cache.mset(accepted_for_caching)
+                self.cache.mset(accepted_for_caching, ex=ex)
                 return True
             except:
                 return False
@@ -193,7 +192,7 @@ class ThroughCache(ICache):
                 try:
                     DBSession.add(obj)
                     DBSession.flush()
-                    self.cache.set(key, dill.dumps(obj))
+                    self.cache.set(key, dill.dumps(obj), ex=ex)
                     result.append(True)
                 except:
                     result.append(False)
