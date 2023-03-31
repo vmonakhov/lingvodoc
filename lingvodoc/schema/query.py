@@ -370,7 +370,7 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 # create file handler which logs even debug messages
 fh = logging.handlers.RotatingFileHandler('debug.log', encoding='utf-8',
-                                          maxBytes=2**24, backupCount=3)
+                                          maxBytes=2**24, backupCount=2)
 fh.setLevel(logging.DEBUG)
 # create console handler with a higher log level
 ch = logging.StreamHandler()
@@ -8660,13 +8660,32 @@ class Query(graphene.ObjectType):
                 '\n' +
                 str(instance_query.statement.compile(compile_kwargs = {'literal_binds': True})))
 
-        instance_list = instance_query.all()
+        per_id = f'adv_per_id_{perspective_id[0]}_{perspective_id[1]}'
+
+        # An item may not exist or may be not json
+        try:
+            instance_list = json.loads(CACHE.get(per_id))
+        except:
+            instance_items = instance_query.all()
+            instance_list = [
+                {'id': instance.id,
+                 'sentence_id': instance.sentence_id,
+                 'index': instance.index,
+                 'adverb_lex': instance.adverb_lex,
+                 'case_str': instance.case_str}
+                for instance in instance_items]
+
+            # Sort instance_list by adverbs specificity (nulls and entropy)
+            CreateAdverbData.sort_instances(instance_list)
+            CACHE.set(per_id, json.dumps(instance_list))
+
+        instance_list = instance_list[offset: offset + limit]
 
         instance_id_set = (
-            set(instance.id for instance in instance_list))
+            set(instance['id'] for instance in instance_list))
 
         sentence_id_set = (
-            set(instance.sentence_id for instance in instance_list))
+            set(instance['sentence_id'] for instance in instance_list))
 
         log.debug(
             '\ninstance_id_set: {}'
@@ -8727,20 +8746,6 @@ class Query(graphene.ObjectType):
                         dbUser.id.in_(user_id_set))
 
                     .all())
-
-        instance_list = [
-
-            {'id': instance.id,
-             'sentence_id': instance.sentence_id,
-             'index': instance.index,
-             'adverb_lex': instance.adverb_lex,
-             'case_str': instance.case_str}
-
-            for instance in instance_list]
-
-        # Sort instance_list by adverbs specificity (nulls and entropy)
-        CreateAdverbData.sort_instances(instance_list)
-        instance_list = instance_list[offset: offset + limit]
 
         sentence_list = [
             dict(sentence.data, id = sentence.id)
@@ -18276,6 +18281,17 @@ class CreateAdverbData(graphene.Mutation):
             debug_flag)
 
         if instance_insert_list:
+            per_id = f'adv_per_id_{perspective_id[0]}_{perspective_id[1]}'
+            CACHE.rem(per_id)
+
+            DBSession.execute(
+                dbAdverbInstanceData.__table__
+                    .delete()
+                    .where(dbValencySourceData.perspective_client_id == perspective_id[0])
+                    .where(dbValencySourceData.perspective_object_id == perspective_id[1])
+                    .where(dbValencySentenceData.source_id == dbValencySourceData.id)
+                    .where(dbAdverbInstanceData.sentence_id == dbValencySentenceData.id))
+
             DBSession.execute(
                 dbAdverbInstanceData.__table__
                     .insert()
