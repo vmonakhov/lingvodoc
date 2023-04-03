@@ -18161,10 +18161,10 @@ class CreateAdverbData(graphene.Mutation):
             parser_result_id = i['id']
 
             # Checking if we already have such parser result valency data
-            valency_source_data= (
+            valency_parser_data = (
                 DBSession
                     .query(
-                        dbValencySourceData)
+                        dbValencyParserData)
 
                     .filter(
                         dbValencySourceData.perspective_client_id == perspective_id[0],
@@ -18177,16 +18177,24 @@ class CreateAdverbData(graphene.Mutation):
 
             valency_sentence_dict = {}
 
-            if valency_source_data:
-                # We have parser result source data
-                # So we can get stored sentences for valency_source_data.id
+            if valency_parser_data:
+                # The same hash, we just skip it.
+                if valency_parser_data.hash_adverb == i['hash']:
+                    continue
+
+                # Update hash
+                valency_parser_data.hash_adverb = i['hash']
+                flag_modified(valency_parser_data, 'hash_adverb')
+
+                # We have parser result data
+                # So we can get stored sentences for valency_parser_data.id
                 valency_sentence_list = (
                     DBSession
                         .query(
                         dbValencySentenceData)
 
                         .filter(
-                        dbValencySentenceData.source_id == valency_source_data.id)
+                        dbValencySentenceData.source_id == valency_parser_data.id)
 
                         .all())
 
@@ -18209,6 +18217,7 @@ class CreateAdverbData(graphene.Mutation):
                         id=valency_source_data.id,
                         parser_result_client_id=parser_result_id[0],
                         parser_result_object_id=parser_result_id[1],
+                        hash_adverb=i['hash'],
                         hash=i['hash']))
                 DBSession.add(valency_parser_data)
                 DBSession.flush()
@@ -18244,7 +18253,7 @@ class CreateAdverbData(graphene.Mutation):
                         # commit sentence_data to db
                         valency_sentence_data = (
                             dbValencySentenceData(
-                                source_id=valency_source_data.id,
+                                source_id=valency_parser_data.id,
                                 data=sentence_data,
                                 instance_count=len(sentence_data['instances'])))
                         DBSession.add(valency_sentence_data)
@@ -18262,7 +18271,7 @@ class CreateAdverbData(graphene.Mutation):
                     log.debug(
                         '\n' +
                         pprint.pformat(
-                            (valency_source_data.id, len(sentence_data['instances']), sentence_data),
+                            (valency_parser_data.id, len(sentence_data['instances']), sentence_data),
                             width=192))
 
     @staticmethod
@@ -18283,18 +18292,31 @@ class CreateAdverbData(graphene.Mutation):
         if instance_insert_list:
             CACHE.rem(adv_per_id(perspective_id))
 
-            DBSession.execute(
-                dbAdverbInstanceData.__table__
-                    .delete()
-                    .where(dbValencySourceData.perspective_client_id == perspective_id[0])
-                    .where(dbValencySourceData.perspective_object_id == perspective_id[1])
-                    .where(dbValencySentenceData.source_id == dbValencySourceData.id)
-                    .where(dbAdverbInstanceData.sentence_id == dbValencySentenceData.id))
+            for instance_insert in instance_insert_list:
 
-            DBSession.execute(
-                dbAdverbInstanceData.__table__
-                    .insert()
-                    .values(instance_insert_list))
+                instance_stored = (
+                    DBSession
+                        .query(
+                        dbAdverbInstanceData)
+
+                        .filter(
+                        dbValencySourceData.perspective_client_id == perspective_id[0],
+                        dbValencySourceData.perspective_object_id == perspective_id[1],
+                        dbAdverbInstanceData.sentence_id == instance_insert['sentence_id'],
+                        dbAdverbInstanceData.index == instance_insert['index'])
+
+                        .first())
+
+                if instance_stored:
+                    instance_stored.adverb_lex = instance_insert['adverb_lex']
+                    flag_modified(instance_stored, 'adverb_lex')
+                    instance_stored.case_str = instance_insert['case_str']
+                    flag_modified(instance_stored, 'case_str')
+                else:
+                    DBSession.execute(
+                        dbAdverbInstanceData.__table__
+                            .insert()
+                            .values(instance_insert))
 
         log.debug(
             f'\ndata_case_set:\n{data_case_set}'

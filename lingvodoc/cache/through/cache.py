@@ -159,7 +159,7 @@ class ThroughCache(ICache):
         if key_value is not None:
             self.cache.mset(
                 dict(
-                    map(lambda key_value_pair: (key_value_pair[0], dill.dumps(key_value_pair[1]) ),
+                    map(lambda key_value_pair: (key_value_pair[0], dill.dumps(key_value_pair[1])),
                         key_value.items()
                         ),
                     ex=ex

@@ -1919,6 +1919,7 @@ class ValencyParserData(
             super().__table_args__)
 
     hash = Column(UnicodeText)
+    hash_adverb = Column(UnicodeText)
 
 
 class ValencyEafData(
