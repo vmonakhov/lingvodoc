@@ -18177,10 +18177,12 @@ class CreateAdverbData(graphene.Mutation):
 
             valency_sentence_dict = {}
 
-            if valency_parser_data:
+            if valency_parser_data and valency_parser_data.hash_adverb != '':
                 # The same hash, we just skip it.
                 if valency_parser_data.hash_adverb == i['hash']:
                     continue
+                # Not the same hash, we actually should update it, but for now we leave it for later
+                continue
 
                 # Update hash
                 valency_parser_data.hash_adverb = i['hash']
@@ -18218,7 +18220,7 @@ class CreateAdverbData(graphene.Mutation):
                         parser_result_client_id=parser_result_id[0],
                         parser_result_object_id=parser_result_id[1],
                         hash_adverb=i['hash'],
-                        hash=i['hash']))
+                        hash=''))
                 DBSession.add(valency_parser_data)
                 DBSession.flush()
 
@@ -18291,7 +18293,7 @@ class CreateAdverbData(graphene.Mutation):
 
         if instance_insert_list:
             CACHE.rem(adv_per_id(perspective_id))
-
+            '''
             for instance_insert in instance_insert_list:
 
                 instance_stored = (
@@ -18317,6 +18319,11 @@ class CreateAdverbData(graphene.Mutation):
                         dbAdverbInstanceData.__table__
                             .insert()
                             .values(instance_insert))
+            '''
+            DBSession.execute(
+                dbAdverbInstanceData.__table__
+                    .insert()
+                    .values(instance_insert_list))
 
         log.debug(
             f'\ndata_case_set:\n{data_case_set}'
