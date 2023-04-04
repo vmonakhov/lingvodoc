@@ -8656,6 +8656,70 @@ class Query(graphene.ObjectType):
                 #.limit(limit)
             )
 
+        from sqlalchemy import func
+
+        id_adverb_case = (
+            DBSession
+
+                .query(
+                dbAdverbInstanceData.id,
+                dbAdverbInstanceData.adverb_lex,
+                func.unnest(
+                  func.string_to_array(dbAdverbInstanceData.case_str, ',')).label('case_str'))
+
+                .filter(
+                dbValencySourceData.perspective_client_id == perspective_id[0],
+                dbValencySourceData.perspective_object_id == perspective_id[1])
+
+               .cte())
+
+        adverb_case_count_cte = (
+            DBSession
+
+                .query(
+                id_adverb_case.c.adverb_lex,
+                id_adverb_case.c.case_str,
+                func.count('*').label('c_i'))
+
+                .group_by(
+                id_adverb_case.c.adverb_lex,
+                id_adverb_case.c.case_str)
+
+                .cte())
+
+        adverb_lex_count_cte = (
+            DBSession
+                .query(
+                adverb_case_count_cte.c.adverb_lex,
+                func.count('*').label('c_uniq'),
+                func.sum(adverb_case_count_cte.c.c_i).label('total'))
+
+                .group_by(
+                adverb_case_count_cte.c.adverb_lex)
+
+                .order_by(c_uniq)
+
+                .cte())
+
+
+        entropy_query = (
+            DBSession
+                .query(
+                adverb_case_count_cte.c.adverb_lex,
+                (func.log(adverb_lex_count_cte.c.total, 2) -
+                 func.sum(adverb_case_count_cte.c.c_i * func.log(adverb_case_count_cte.c.с_i, 2)) /
+                 adverb_lex_count_cte.c.total).label('entropy'))
+
+                .qroup_by(
+                adverb_case_count_cte.c.adverb_lex,
+                adverb_case_count_cte.c.case_str,
+                adverb_lex_count_cte.c.adverb_lex)
+
+                .order_by(entropy)
+
+                .all())
+
+
         if debug_flag:
 
             log.debug(

@@ -20,7 +20,7 @@ def upgrade():
     op.execute('''
         ALTER TABLE valency_parser_data
           ADD hash_adverb TEXT;
-          
+
         UPDATE valency_parser_data
           SET hash_adverb = ''
           WHERE hash_adverb IS NULL;
