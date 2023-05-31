@@ -273,7 +273,8 @@ from lingvodoc.utils.search import (
     recursive_sort,
     eaf_words,
     find_all_tags,
-    find_lexical_entries_by_tags)
+    find_lexical_entries_by_tags,
+    get_id_to_field_dict)
 
 import lingvodoc.cache.caching as caching
 from lingvodoc.cache.caching import initialize_cache, TaskStatus
@@ -15513,15 +15514,15 @@ class Docx2Eaf(graphene.Mutation):
     Tries to convert a table-containing .docx to .eaf.
 
     curl 'http://localhost:6543/graphql'
-      -H 'Cookie: locale_id=2; auth_tkt=5f65a2fb86f96c48db0606867ec26d973abab88eb85112734e1f20b4b3438c3b7a606df37da360e59a0a8d248ade82ca93bdc3c349a6d6bb69e82fb35b793d0761b465414211!userid_type:int; client_id=4211'
+      -H 'Cookie: locale_id=2; auth_tkt=_!userid_type:int; client_id=4211'
       -H 'Content-Type: multipart/form-data'
       -F operations='{
          "query": "mutation docx2eaf($docxFile: Upload, $separateFlag: Boolean) {
            docx2eaf(docx_file: $docxFile, separate_flag: $separateFlag, debug_flag: true) {
              triumph eaf_url alignment_url check_txt_url check_docx_url message } }",
          "variables": { "docxFile": null, "separateFlag": false } }'
-      -F map='{ "0": ["variables.docx_file"] }'
-      -F 0=@"/root/lingvodoc-extra/Чертыкова_Беседы_14.09.2019.docx"
+      -F map='{ "1": ["variables.docx_file"] }'
+      -F 1=@"/root/lingvodoc-extra/Чертыкова_Беседы_14.09.2019.docx"
     """
 
     class Arguments:
@@ -15804,9 +15805,15 @@ class Valency(graphene.Mutation):
     Extracts valency info.
 
     curl 'http://localhost:6543/graphql' \
-      -H 'content-type: application/json' \
-      -H 'Cookie: auth_tkt=f697cdb8f16ec3ca6f01df92df4de1fec7a50978c849ad2c3f3980be87971b21c7ce3ba26a71caf3e5ad9dc985e1976914a509efe4c5ebd09e1d13ef9e78cfae61b6058b4217!userid_type:int; client_id=4217; locale_id=2' \
-      --data-raw '{"operationName":"valency","variables":{"perspectiveId":[3648,8]},"query":"mutation valency($perspectiveId: LingvodocID!) { valency(perspective_id: $perspectiveId, synchronous: true, debug_flag: true) { triumph }}"}'
+      -H 'Content-Type: application/json' \
+      -H 'Cookie: auth_tkt=_!userid_type:int; client_id=4217; locale_id=2' \
+      --data-raw '{ \
+        "operationName": "valency", \
+        "variables":{"perspectiveId":[3648,8]}, \
+        "query": \
+          "mutation valency($perspectiveId: LingvodocID!) { \
+            valency(perspective_id: $perspectiveId, synchronous: true, debug_flag: true) { \
+              triumph }}"}'
     """
 
     class Arguments:
@@ -18722,6 +18729,267 @@ class ValencyVerbCases(graphene.Mutation):
                     'Exception:\n' + traceback_string))
 
 
+class BidirectionalLinks(graphene.Mutation):
+    """
+    Ensures that links between Lexical Entries and Paradigms perspectives of each specified dictionary are
+    bidirectional.
+
+    curl 'http://localhost:6543/graphql' \
+      -H 'Content-Type: application/json' \
+      -H 'Cookie: auth_tkt=_!userid_type:int; client_id=4217; locale_id=2' \
+      --data-raw '{ \
+        "operationName": "bidirectionalLinks", \
+        "variables":{"dictionaryIdList":[[4755,333330]]}, \
+        "query": \
+          "mutation bidirectionalLinks($dictionaryIdList: [LingvodocID]!) { \
+            bidirectional_links(dictionary_id_list: $dictionaryIdList, debug_flag: true) { \
+              triumph }}"}'
+    """
+
+    class Arguments:
+
+        dictionary_id_list = graphene.List(LingvodocID, required = True)
+        debug_flag = graphene.Boolean()
+
+    triumph = graphene.Boolean()
+
+    @staticmethod
+    def mutate(
+        root,
+        info,
+        dictionary_id_list,
+        debug_flag = False):
+
+        try:
+
+            backref_fid = (
+                get_id_to_field_dict()['Backref'])
+
+            backref_dtype = (
+
+                DBSession
+
+                    .query(
+                        dbTranslationAtom.content)
+
+                    .filter(
+                        dbField.client_id == backref_fid[0],
+                        dbField.object_id == backref_fid[1],
+                        dbTranslationAtom.locale_id == ENGLISH_LOCALE,
+                        dbTranslationAtom.parent_client_id == dbField.data_type_translation_gist_client_id,
+                        dbTranslationAtom.parent_object_id == dbField.data_type_translation_gist_object_id)
+
+                    .scalar()
+                    .lower())
+
+            # Processing each dictionary.
+
+            for dictionary_id in dictionary_id_list:
+
+                log.debug(
+                    f'\ndictionary_id: {dictionary_id}')
+
+                dictionary = (
+
+                    DBSession
+                        .query(dbDictionary)
+                        .get((dictionary_id[1], dictionary_id[0])))
+
+                if dictionary is None:
+
+                    return (
+
+                        ResponseError(
+                            f'Dictionary {dictionary_id} does not exist.'))
+
+                if dictionary.marked_for_deletion:
+
+                    return (
+
+                        ResponseError(
+                            f'Dictionary {dictionary_id} is deleted.'))
+
+                if debug_flag:
+
+                    log.debug(
+                        f'\ndictionary.get_translation():\n{repr(dictionary.get_translation())}')
+
+                # Processing all linked lexical entries of all perspectives of the dictionary, intentionally
+                # counting even deleted links.
+
+                link_list = (
+
+                    DBSession
+
+                        .query(
+                            dbPerspective.client_id,
+                            dbPerspective.object_id,
+                            dbLexicalEntry.client_id,
+                            dbLexicalEntry.object_id,
+                            dbEntity.client_id,
+                            dbEntity.object_id,
+                            dbEntity.link_client_id,
+                            dbEntity.link_object_id,
+                            dbEntity.marked_for_deletion,
+                            dbPublishingEntity.published,
+                            dbPublishingEntity.accepted)
+
+                        .filter(
+                            dbPerspective.parent_client_id == dictionary_id[0],
+                            dbPerspective.parent_object_id == dictionary_id[1],
+                            dbPerspective.marked_for_deletion == False,
+                            dbLexicalEntry.parent_client_id == dbPerspective.client_id,
+                            dbLexicalEntry.parent_object_id == dbPerspective.object_id,
+                            dbLexicalEntry.marked_for_deletion == False,
+                            dbEntity.parent_client_id == dbLexicalEntry.client_id,
+                            dbEntity.parent_object_id == dbLexicalEntry.object_id,
+                            dbEntity.field_client_id == backref_fid[0],
+                            dbEntity.field_object_id == backref_fid[1],
+                            dbPublishingEntity.client_id == dbEntity.client_id,
+                            dbPublishingEntity.object_id == dbEntity.object_id)
+
+                        .all())
+
+                log.debug(
+                    f'\nlen(link_list): {len(link_list)}')
+
+                link_list = [
+
+                    ((p_cid, p_oid),
+                        (l_cid, l_oid),
+                        (e_cid, e_oid),
+                        (k_cid, k_oid),
+                        (d, p, a))
+
+                    for p_cid, p_oid, l_cid, l_oid, e_cid, e_oid, k_cid, k_oid, d, p, a in link_list]
+
+                # Compiling info of existing links.
+
+                link_dict = {
+                    (entry_id, link_id): perspective_id
+                    for perspective_id, entry_id, _, link_id, _ in link_list}
+
+                # __DEBUG__
+
+#               link_dict = {}
+
+#               for data_item in link_list:
+
+#                   _, entry_id, _, link_id, _ = data_item
+
+#                   link_key = (
+#                       entry_id, link_id)
+
+#                   if link_key in link_dict:
+
+#                       log.debug(f'\n{link_dict[link_key]}')
+#                       log.debug(f'\n{data_item}')
+
+
+
+#                       import pdb
+#                       pdb.set_trace()
+
+#                       raise NotImplementedError
+
+#                   link_dict[link_key] = data_item
+
+                # __
+
+                entry_list = (
+
+                    DBSession
+
+                        .query(
+                            dbPerspective.client_id,
+                            dbPerspective.object_id,
+                            dbLexicalEntry.client_id,
+                            dbLexicalEntry.object_id)
+
+                        .filter(
+                            dbPerspective.parent_client_id == dictionary_id[0],
+                            dbPerspective.parent_object_id == dictionary_id[1],
+                            dbPerspective.marked_for_deletion == False,
+                            dbLexicalEntry.parent_client_id == dbPerspective.client_id,
+                            dbLexicalEntry.parent_object_id == dbPerspective.object_id,
+                            dbLexicalEntry.marked_for_deletion == False)
+
+                        .all())
+
+                entry_dict = {
+                    (l_cid, l_oid): (p_cid, p_oid)
+                    for p_cid, p_oid, l_cid, l_oid in entry_list}
+
+                log.debug(
+                    f'\nlen(link_dict): {len(link_dict)}'
+                    f'\nlen(entry_dict): {len(entry_dict)}')
+
+                if debug_flag:
+
+                    perspective_dict = {}
+
+                    perspective_list = (
+
+                        DBSession
+
+                            .query(
+                                dbPerspective)
+
+                            .filter(
+                                dbPerspective.parent_client_id == dictionary_id[0],
+                                dbPerspective.parent_object_id == dictionary_id[1],
+                                dbPerspective.marked_for_deletion == False)
+
+                            .all())
+
+                    perspective_dict = {
+                        perspective.id: perspective
+                        for perspective in perspective_list}
+
+                    translation_dict = {
+                        perspective.id: perspective.get_translation()
+                        for perspective in perspective_list}
+
+                for (from_id, to_id), perspective_id in link_dict.items():
+
+                    if (to_id, from_id) in link_dict:
+                        continue
+
+                    if debug_flag:
+
+                        import pdb
+                        pdb.set_trace()
+
+                        log.debug(
+                            f'\nperspective: {translation_dict[entry_dict[from_id]]}'
+                            f'\nperspective: {translation_dict[entry_dict[to_id]]}')
+
+                    import pdb
+                    pdb.set_trace()
+
+                    raise NotImplementedError
+
+                raise NotImplementedError
+
+            raise NotImplementedError
+
+        except Exception as exception:
+
+            traceback_string = (
+
+                ''.join(
+                    traceback.format_exception(
+                        exception, exception, exception.__traceback__))[:-1])
+
+            log.warning('bidirectional_links: exception')
+            log.warning(traceback_string)
+
+            return (
+
+                ResponseError(
+                    'Exception:\n' + traceback_string))
+
+
 class MyMutations(graphene.ObjectType):
     """
     Mutation classes.
@@ -18826,6 +19094,7 @@ class MyMutations(graphene.ObjectType):
     save_valency_data = SaveValencyData.Field()
     set_valency_annotation = SetValencyAnnotation.Field()
     valency_verb_cases = ValencyVerbCases.Field()
+    bidirectional_links = BidirectionalLinks.Field()
 
 schema = graphene.Schema(query=Query, auto_camelcase=False, mutation=MyMutations)
 
