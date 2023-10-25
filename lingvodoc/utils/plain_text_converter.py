@@ -45,15 +45,18 @@ line = r'\d+'
 tib_end = r'\|\|+'
 oir_end = r':+'
 
-position_marker = re.compile(f'\[{page}:{line}\]|'
-                             f'\[{page}\]')
+position_regexp = (f'\[{page}:{line}\]|'
+                   f'\[{page}\]')
 
-line_marker = re.compile(f'\({line}\)')
+line_regexp = f'\({line}\)'
 
-sentence_marker = re.compile(f'{tib_end}|'
-                             f'{oir_end}|'
-                             f'\[{tib_end}\]|'
-                             f'\[{oir_end}\]')
+sentence_regexp = (f'{tib_end}|'
+                   f'{oir_end}|'
+                   f'\[{tib_end}\]|'
+                   f'\[{oir_end}\]')
+
+missed_regexp = r'<(\d+)>'
+comment_regexp = r'<(.*)>'
 
 
 def txt_to_column(path, url, columns_dict=defaultdict(list), column=None):
@@ -71,7 +74,7 @@ def txt_to_column(path, url, columns_dict=defaultdict(list), column=None):
                 .read()
                 .decode('utf-8-sig', 'ignore'))
 
-    if not (txt_start := re.search(position_marker, txt_file)):
+    if not (txt_start := re.search(position_regexp, txt_file)):
         raise ValueError("Be careful, meaningful text must start with a marker like '[12a:23]' or '[12b]' or just '[12]'.")
 
     txt_file = txt_file[txt_start.start():]
@@ -79,7 +82,7 @@ def txt_to_column(path, url, columns_dict=defaultdict(list), column=None):
     # Replace colons in markers to another symbol to differ from colons in text
     txt_file = re.sub(r':(\d)', r'#\1', txt_file)
 
-    if not (sentences := re.split(sentence_marker, txt_file)[:-1]):
+    if not (sentences := re.split(sentence_regexp, txt_file)[:-1]):
         raise ValueError("No one sentence is found. Be careful, sentences must end with '||' or ':' simbols. These symbols may be closed in square brackets.")
 
     if not column:
@@ -106,6 +109,9 @@ def txt_to_column(path, url, columns_dict=defaultdict(list), column=None):
 def txt_to_parallel_columns(columns_inf):
     columns_dict = defaultdict(list)
 
+    # Hide dashes in base column if it's needed
+    columns_dict["dedash"] = columns_inf[0].get("dedash")
+
     # Init field to be the first one in result table
     order_field_id = get_field_id('Order')
     columns_dict[order_field_id] = []
@@ -113,7 +119,7 @@ def txt_to_parallel_columns(columns_inf):
     max_count = 0
     for column_inf in columns_inf:
         blob_id = tuple(column_inf.get("blob_id"))
-        field_id = tuple(column_inf.field_map.get("field_id"))
+        field_id = tuple(column_inf.get("field_id"))
         blob = DBSession.query(dbUserBlobs).filter_by(client_id=blob_id[0], object_id=blob_id[1]).first()
 
         columns_dict, count = txt_to_column(blob.real_storage_path, blob.content, columns_dict, field_id)
@@ -126,9 +132,35 @@ def txt_to_parallel_columns(columns_inf):
 
 
 def join_sentences(columns_dict):
-    def pure_note(note):
-        return re.sub(f'{position_marker.pattern}|{line_marker.pattern}|{sentence_marker.pattern}|[^\w\s]', '', note)
 
+    def clean_text(note, non_base):
+        note = re.sub(missed_regexp, '/missed text/', note)
+        #note = re.sub(comment_regexp, r'\1', note)
+
+        # Hide dashes
+        if columns_dict.get("dedash") and not non_base:
+            note = re.sub(r"([\w’'])-([\w’'])", r"\1 \2", note)
+
+        return note
+
+    # Count words without punctuation and metatextual markers
+    # Append missed words number if is
+    def words_number(note):
+        missed_number = 0
+        if missed_marker := re.search(missed_regexp, note):
+            missed_number = int(missed_marker.group(1))
+
+        note = re.sub(f'{position_regexp}|'
+                      f'{line_regexp}|'
+                      f'{sentence_regexp}|'
+                      f'{comment_regexp}|'
+                      f'[^\w\s]', '', note)
+
+        return len(note.split()) + missed_number
+
+    # For some number of words from original text corresponds
+    # some number in translation. So we have to recalculate
+    # these numbers back to compare them with each other
     def coeff(non_base):
         return 10 if non_base else 8
 
@@ -139,22 +171,24 @@ def join_sentences(columns_dict):
     for f_id, lines in columns_dict.items():
         if f_id == order_field_id:
             order_it = iter(lines)
-        else:
+        elif type(lines) is list:
             iterators[f_id] = iter(lines)
 
     count = 0
     buffer = {}
     result = defaultdict(list)
     for order in order_it:
-        # Read all the columns to find the longest sentence
         words = {}
         sentence = {}
+        # Read all the columns to find the longest sentence
         for non_base, (f_id, it) in enumerate(iterators.items()):
+            # Firstly get sentence from buffer if is
+            # else get it from the source dictionary
             if not (note := buffer.get(f_id)):
                 if not (note := next(it, None)):
                     continue
-            words[f_id] = len(pure_note(note).split()) * coeff(non_base)
-            sentence[f_id] = note
+            words[f_id] = words_number(note) * coeff(non_base)
+            sentence[f_id] = clean_text(note, non_base)
 
         # To interrupt if all the columns have ended
         if not sentence:
@@ -163,6 +197,7 @@ def join_sentences(columns_dict):
         count += 1
         result[order_field_id].append(order)
         longest = max(words.values())
+        # Clean out buffer
         buffer = {}
 
         for non_base, (f_id, wrd) in enumerate(words.items()):
@@ -170,16 +205,19 @@ def join_sentences(columns_dict):
                 if not (note := next(iterators[f_id], None)):
                     break
 
-                next_wrd = len(pure_note(note).split()) * coeff(non_base)
+                next_wrd = words_number(note) * coeff(non_base)
                 wrd += next_wrd
 
+                # If next sentence is too long we don't concatenate
+                # and put it into 'buffer' dictionary for next entity
                 if wrd / longest > threshold:
-                    buffer[f_id] = note
+                    buffer[f_id] = clean_text(note, non_base)
                     wrd -= next_wrd
                     break
                 else:
-                    sentence[f_id] += f' // {note}'
+                    sentence[f_id] += f' // {clean_text(note, non_base)}'
 
+            # Write into the result dictionary
             result[f_id].append(f'{sentence[f_id]} <{wrd//coeff(non_base)}>')
 
     return result, count
@@ -221,14 +259,10 @@ def create_entity(
     return dbentity
 
 
-class FieldInf(graphene.InputObjectType):
-    column_name = graphene.String()
-    field_id = LingvodocID(required=True)
-
-
 class ColumnInf(graphene.InputObjectType):
     blob_id = LingvodocID(required=True)
-    field_map = FieldInf(required=True)
+    field_id = LingvodocID(required=True)
+    dedash = graphene.Boolean()
 
 
 class CorpusInf(graphene.InputObjectType):
@@ -257,7 +291,7 @@ class GqlParallelCorpora(graphene.Mutation):
         user_id = dbClient.get_user_by_client_id(info.context["client_id"]).id
         task = TaskStatus(user_id, "Txt corpora conversion", task_name, 5)
 
-        convert_start( #.delay(
+        convert_start.delay(
             [info.context["client_id"], None],
             corpus_inf,
             columns_inf,
@@ -294,7 +328,7 @@ def get_translation_gist_id(translation_atoms, client_id, gist_type):
     return translation_gist_id
 
 
-#@celery.task
+@celery.task
 def convert_start(ids, corpus_inf, columns_inf, cache_kwargs, sqlalchemy_url, task_key):
     """
     TODO: change the description below
